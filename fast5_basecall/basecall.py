@@ -10,6 +10,7 @@
 '''
 
 import re
+import os
 import numpy as np
 import pandas as pd
 import glob
@@ -83,8 +84,8 @@ def fast5_to_word(
         if not required.issubset(kwargs_kmeans):
             raise ValueError("kwargs_kmeans must contain 'window_size' and 'stride'.")
         tokenizer = KmeansTokenizer(
-            window_size=window_size, 
-            stride=stride,
+            window_size=kwargs_kmeans['window_size'], 
+            stride=kwargs_kmeans['stride'],
             centroids_path=model_path
         )
     elif method == 'vq':
@@ -98,8 +99,9 @@ def fast5_to_word(
 
     fast5_files = glob.glob(fast5_files_dir + '/*.fast5')
     for fast5_file in tqdm(fast5_files, desc="Processing fast5 files"):
-        
+        filename = os.path.basename(fast5_file)
         tokenizer.tokenize_fast5(
             fast5_path=fast5_file,
-            output_path=f"{output_dir}/sample.json.gz"
-    ) 
+            output_path=f"{output_dir}/{filename}.json.gz"
+    )
+    
