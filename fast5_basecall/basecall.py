@@ -21,10 +21,12 @@ import torch
 from typing import Dict, Optional, Tuple, Union, Literal, List
 from nanopore_signal_tokenizer import VQTokenizer
 from nanopore_signal_tokenizer import KmeansTokenizer
+import json
+import gzip
 
 
 
-def get_overlap_hat(
+def get_overlap_stat(
     chunk_size: int, 
     window_len: int, 
     stride: int, 
@@ -34,6 +36,18 @@ def get_overlap_hat(
     Calculate the overlap needed for chunking.
     给定chunk_size, window_len, stride, 计算实际的overlap长度，以及前后chunk交界处的window索引。
     这里实际的overlap长度在suppose_overlap_len附近波动，以保证前后两个chunk重叠的区域的window是对齐的。
+
+    tail = (chunk-window) % stride  %：求余数
+    overlap = tail + window + stride * (n_window - 1) 找到合适的n_window，使得overlap最接近suppose_ov=500
+
+    n_window_hat = (suppose_ov - tail - window) // stride + 1    //:求商的整数部分
+    overlap_hat = tail + window + stride * (n_window_hat - 1)
+    前一个chunk截取后的结尾所在的位置pre_end = chunk - overlap_hat + window + stride * (n_window_hat//2 - 1)       1-based
+    前一个chunk截取后的结尾所在的window编号pre_end_w_idx = (pre_end-window)//stride    0-based
+    后一个chunk截取后的开头所在的window编号post_start_w_idx = n_window_hat//2   0-based
+    后一个chunk的原始起始和前一个trunk的原始起始的window编号差diff_window_num =  (chunk - overlap_hat) // stride
+
+
     Args:
         chunk_size (int): Size of each chunk.
         window_len (int): Length of each window.
@@ -49,15 +63,25 @@ def get_overlap_hat(
     total_window_num_in_a_chunk = (chunk_size - window_len) // stride + 1
     assert n_window_hat < total_window_num_in_a_chunk, "Overlap is too large for the given chunk size."
 
-    #前一个chunk的结尾所在的位置 1-based
+    #前一个chunk截取后的的结尾所在的位置 1-based
     pre_end = chunk_size - overlap_hat + window_len + stride * (n_window_hat//2 - 1)
-    #前一个chunk的结尾所在的window编号 0-based
+    #前一个chunk截取后的的结尾所在的window编号 0-based
     pre_end_w_idx = (pre_end - window_len) // stride
-    #后一个chunk的开头所在的window编号  0-based
+    #后一个chunk截取后的的开头所在的window编号  0-based
     post_start_w_idx = n_window_hat // 2
+    #后一个chunk的原始起始和前一个trunk的原始起始的window编号差
+    diff_window_num = (chunk_size - overlap_hat) // stride
 
-    return total_window_num_in_a_chunk, overlap_hat, pre_end_w_idx, post_start_w_idx
 
+    ov_stat_dict = {
+        'total_window_num_in_a_chunk': total_window_num_in_a_chunk, 
+        'overlap_hat': overlap_hat, 
+        'pre_end_w_idx': pre_end_w_idx, 
+        'post_start_w_idx': post_start_w_idx,
+        'diff_window_num': diff_window_num
+    }
+
+    return ov_stat_dict
 
 
 
@@ -100,8 +124,39 @@ def fast5_to_word(
     fast5_files = glob.glob(fast5_files_dir + '/*.fast5')
     for fast5_file in tqdm(fast5_files, desc="Processing fast5 files"):
         filename = os.path.basename(fast5_file)
-        tokenizer.tokenize_fast5(
-            fast5_path=fast5_file,
-            output_path=f"{output_dir}/{filename}.json.gz"
-    )
+        if method == 'kmeans':
+            tokenizer.tokenize_fast5_file(
+                fast5_path=fast5_file,
+                output_path=f"{output_dir}/{filename}.jsonl.gz"
+            )
+
+
+def parse_concatenated_json(text):
+    """解析拼接的多个 JSON 对象"""
+    decoder = json.JSONDecoder()
+    pos = 0
+    results = []
+    while pos < len(text):
+        if text[pos].strip() == '':
+            pos += 1
+            continue
+        obj, pos = decoder.raw_decode(text, pos)
+        results.append(obj)
+    return results
+
+
+def read_jsonl_gz(file_path: str) -> List[Dict]:
+    """
+    读取 JSONL.GZ 文件并返回包含所有 JSON 对象的列表。
     
+    Args:
+        file_path (str): JSONL.GZ 文件路径。
+    
+    Returns:
+        List[Dict]: 包含所有 JSON 对象的列表。
+    """
+    with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+        content = f.read()
+    
+    json_objects = parse_concatenated_json(content)
+    return json_objects
