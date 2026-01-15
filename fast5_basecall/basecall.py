@@ -89,8 +89,8 @@ def fast5_to_word(
     model_path: str,
     fast5_files_dir: str,
     method: Literal['kmeans', 'vq'] = 'kmeans',
-    kwargs_kmeans: Optional[Dict] = None,
-    kwargs_vq: Optional[Dict] = None,
+    # kwargs_kmeans: Optional[Dict] = None,
+    # kwargs_vq: Optional[Dict] = None,
     output_dir: str = './',
 ):
     """
@@ -103,15 +103,18 @@ def fast5_to_word(
         fast5_files_dir (str): Directory containing fast5 files.
         method (Literal['kmeans', 'vq'], optional): Tokenization method. Defaults to 'kmeans'.
     """
+    sliding_dict = {}
     if method == 'kmeans':
-        required = {'window_size', 'stride'}
-        if not required.issubset(kwargs_kmeans):
-            raise ValueError("kwargs_kmeans must contain 'window_size' and 'stride'.")
+        # required = {'window_size', 'stride'}
+        # if not required.issubset(kwargs_kmeans):
+            # raise ValueError("kwargs_kmeans must contain 'window_size' and 'stride'.")
         tokenizer = KmeansTokenizer(
-            window_size=kwargs_kmeans['window_size'], 
-            stride=kwargs_kmeans['stride'],
+            # window_size=kwargs_kmeans['window_size'], 
+            # stride=kwargs_kmeans['stride'],
             centroids_path=model_path
         )
+        sliding_dict['wnidow_size'] = tokenizer.window_size
+        sliding_dict['stride'] = tokenizer.stride
     elif method == 'vq':
         tokenizer = VQTokenizer(
             model_ckpt=model_path,  # 必填：预训练模型路径
@@ -121,14 +124,17 @@ def fast5_to_word(
     else:
         raise ValueError("Method must be either 'kmeans' or 'vq'.")
 
+    print(sliding_dict)
+
     fast5_files = glob.glob(fast5_files_dir + '/*.fast5')
     for fast5_file in tqdm(fast5_files, desc="Processing fast5 files"):
         filename = os.path.basename(fast5_file)
-        if method == 'kmeans':
-            tokenizer.tokenize_fast5_file(
-                fast5_path=fast5_file,
-                output_path=f"{output_dir}/{filename}.jsonl.gz"
-            )
+        tokenizer.tokenize_fast5(
+            fast5_path=fast5_file,
+            output_path=f"{output_dir}/{filename}.jsonl.gz"
+        )
+
+    return sliding_dict
 
 
 def parse_concatenated_json(text):
